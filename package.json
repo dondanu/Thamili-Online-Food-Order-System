@@ -1,0 +1,17 @@
+{
+  "name": "thamili-online-food-order-system",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "front-end",
+    "back-end"
+  ],
+  "scripts": {
+    "front:dev": "npm run dev -w front-end",
+    "front:build": "npm run build -w front-end",
+    "front:preview": "npm run preview -w front-end",
+    "front:lint": "npm run lint -w front-end",
+    "back:start": "npm run start -w back-end",
+    "back:dev": "npm run dev -w back-end"
+  }
+}
