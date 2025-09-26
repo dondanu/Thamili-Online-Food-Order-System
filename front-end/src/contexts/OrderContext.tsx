@@ -24,6 +24,14 @@ export interface CartItem extends MenuItem {
   quantity: number;
 }
 
+export type CouponType = 'percent' | 'fixed';
+
+export interface Coupon {
+  code: string;
+  type: CouponType;
+  amount: number; // percent (0-100) when type is 'percent', otherwise fixed currency
+}
+
 export interface Order {
   id: string;
   items: CartItem[];
@@ -43,6 +51,11 @@ interface OrderContextType {
   placeOrder: () => string;
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
   getCartItemQuantity: (itemId: string | number) => number;
+  // coupons & totals
+  appliedCoupon: Coupon | null;
+  applyCoupon: (code: string) => Promise<boolean>;
+  removeCoupon: () => void;
+  getCartTotals: () => { subtotal: number; discount: number; total: number };
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -58,6 +71,7 @@ export const useOrder = () => {
 export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const { user, isLoading } = useAuth();
 
   // Load orders from backend
@@ -129,13 +143,14 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const response = await fetch(`${API_URL}/orders`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ items: orderItems })
+        body: JSON.stringify({ items: orderItems, coupon: appliedCoupon?.code || undefined })
       });
 
       const data = await response.json();
       
       if (data.success) {
         clearCart();
+        setAppliedCoupon(null);
         await loadOrders(); // Reload orders to get the new one
         return data.data.order.id.toString();
       } else {
@@ -162,6 +177,51 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [user, isLoading]);
 
+  // Coupons: simple client-side validation with common codes
+  const validateCouponLocally = (code: string): Coupon | null => {
+    const normalized = code.trim().toUpperCase();
+    if (!normalized) return null;
+    const catalog: Record<string, Coupon> = {
+      'SAVE10': { code: 'SAVE10', type: 'percent', amount: 10 },
+      'SAVE20': { code: 'SAVE20', type: 'percent', amount: 20 },
+      'WELCOME5': { code: 'WELCOME5', type: 'fixed', amount: 5 },
+    };
+    return catalog[normalized] || null;
+  };
+
+  const applyCoupon = async (code: string): Promise<boolean> => {
+    try {
+      // If backend supports coupon validation, prefer it here
+      // fallback to local validation
+      const local = validateCouponLocally(code);
+      if (local) {
+        setAppliedCoupon(local);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const removeCoupon = () => setAppliedCoupon(null);
+
+  const getCartTotals = () => {
+    const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    let discount = 0;
+    if (appliedCoupon) {
+      if (appliedCoupon.type === 'percent') {
+        discount = (subtotal * appliedCoupon.amount) / 100;
+      } else {
+        discount = appliedCoupon.amount;
+      }
+      // Clamp discount to subtotal
+      if (discount > subtotal) discount = subtotal;
+    }
+    const total = subtotal - discount;
+    return { subtotal, discount, total };
+  };
+
   const value = {
     cart,
     orders,
@@ -172,7 +232,11 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     placeOrder,
     updateOrderStatus,
     loadOrders,
-    getCartItemQuantity
+    getCartItemQuantity,
+    appliedCoupon,
+    applyCoupon,
+    removeCoupon,
+    getCartTotals
   };
 
   return <OrderContext.Provider value={value}>{children}</OrderContext.Provider>;
