@@ -2,134 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, Filter } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { useOrder } from '../contexts/OrderContext';
-
-interface MenuItem {
-  id: number;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  image: string;
-  available: boolean;
-}
+import type { MenuItem as SharedMenuItem } from '../contexts/OrderContext';
+import { fetchMenuItems as fetchMenuItemsApi, fetchCategories as fetchCategoriesApi } from '../data/menuItems';
 
 export const Order: React.FC = () => {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuItems, setMenuItems] = useState<SharedMenuItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [loading, setLoading] = useState(true);
-  const { cart, addToCart, removeFromCart, getCartItemQuantity } = useOrder();
-
-  const fetchMenuItems = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/menu');
-      if (response.ok) {
-        const data = await response.json();
-        setMenuItems(data);
-      } else {
-        // Fallback to mock data if API fails
-        setMenuItems([
-          {
-            id: 1,
-            name: 'Margherita Pizza',
-            description: 'Fresh tomatoes, mozzarella, basil',
-            price: 12.99,
-            category: 'Pizza',
-            image: 'https://images.pexels.com/photos/315755/pexels-photo-315755.jpeg',
-            available: true
-          },
-          {
-            id: 2,
-            name: 'Chicken Burger',
-            description: 'Grilled chicken, lettuce, tomato, mayo',
-            price: 9.99,
-            category: 'Burgers',
-            image: 'https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg',
-            available: true
-          },
-          {
-            id: 3,
-            name: 'Caesar Salad',
-            description: 'Romaine lettuce, croutons, parmesan',
-            price: 8.99,
-            category: 'Salads',
-            image: 'https://images.pexels.com/photos/1059905/pexels-photo-1059905.jpeg',
-            available: true
-          },
-          {
-            id: 4,
-            name: 'Pasta Carbonara',
-            description: 'Creamy pasta with bacon and parmesan',
-            price: 14.99,
-            category: 'Pasta',
-            image: 'https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg',
-            available: true
-          },
-          {
-            id: 5,
-            name: 'Fish Tacos',
-            description: 'Grilled fish, cabbage slaw, lime crema',
-            price: 11.99,
-            category: 'Mexican',
-            image: 'https://images.pexels.com/photos/461198/pexels-photo-461198.jpeg',
-            available: true
-          },
-          {
-            id: 6,
-            name: 'Chocolate Cake',
-            description: 'Rich chocolate cake with ganache',
-            price: 6.99,
-            category: 'Desserts',
-            image: 'https://images.pexels.com/photos/291528/pexels-photo-291528.jpeg',
-            available: true
-          }
-        ]);
-      }
-    } catch (error) {
-      console.error('Error fetching menu items:', error);
-      // Fallback to mock data
-      setMenuItems([
-        {
-          id: 1,
-          name: 'Margherita Pizza',
-          description: 'Fresh tomatoes, mozzarella, basil',
-          price: 12.99,
-          category: 'Pizza',
-          image: 'https://images.pexels.com/photos/315755/pexels-photo-315755.jpeg',
-          available: true
-        },
-        {
-          id: 2,
-          name: 'Chicken Burger',
-          description: 'Grilled chicken, lettuce, tomato, mayo',
-          price: 9.99,
-          category: 'Burgers',
-          image: 'https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg',
-          available: true
-        }
-      ]);
-    }
-  };
-
-  const fetchCategories = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/menu/categories');
-      if (response.ok) {
-        const data = await response.json();
-        setCategories(['All', ...data]);
-      } else {
-        setCategories(['All', 'Pizza', 'Burgers', 'Salads', 'Pasta', 'Mexican', 'Desserts']);
-      }
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-      setCategories(['All', 'Pizza', 'Burgers', 'Salads', 'Pasta', 'Mexican', 'Desserts']);
-    }
-  };
+  const { cart, addToCart, removeFromCart, getCartItemQuantity, updateQuantity, placeOrder } = useOrder();
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchMenuItems(), fetchCategories()]);
+      const [items, cats] = await Promise.all([
+        fetchMenuItemsApi(),
+        fetchCategoriesApi()
+      ]);
+      setMenuItems(items);
+      setCategories(['All', ...cats]);
       setLoading(false);
     };
     loadData();
@@ -153,7 +44,7 @@ export const Order: React.FC = () => {
   }
 
   return (
-    <Layout>
+    <Layout title="Order Food">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Menu Section */}
@@ -201,14 +92,14 @@ export const Order: React.FC = () => {
                         {getCartItemQuantity(item.id) > 0 ? (
                           <div className="flex items-center space-x-2">
                             <button
-                              onClick={() => removeFromCart(item.id)}
+                              onClick={() => updateQuantity(String(item.id), getCartItemQuantity(item.id) - 1)}
                               className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
                             >
                               <Minus className="w-4 h-4" />
                             </button>
                             <span className="font-medium">{getCartItemQuantity(item.id)}</span>
                             <button
-                              onClick={() => addToCart(item)}
+                              onClick={() => addToCart({ ...item, id: String(item.id) })}
                               className="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center hover:bg-orange-600 transition-colors"
                             >
                               <Plus className="w-4 h-4" />
@@ -216,7 +107,7 @@ export const Order: React.FC = () => {
                           </div>
                         ) : (
                           <button
-                            onClick={() => addToCart(item)}
+                            onClick={() => addToCart({ ...item, id: String(item.id) })}
                             className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center space-x-2"
                           >
                             <Plus className="w-4 h-4" />
@@ -252,14 +143,14 @@ export const Order: React.FC = () => {
                         </div>
                         <div className="flex items-center space-x-2">
                           <button
-                            onClick={() => removeFromCart(item.id)}
+                            onClick={() => removeFromCart(String(item.id))}
                             className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
                           >
                             <Minus className="w-3 h-3" />
                           </button>
                           <span className="text-sm font-medium">{item.quantity}</span>
                           <button
-                            onClick={() => addToCart(item)}
+                            onClick={() => addToCart({ ...item, id: String(item.id) })}
                             className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center hover:bg-orange-600 transition-colors"
                           >
                             <Plus className="w-3 h-3" />
@@ -274,7 +165,7 @@ export const Order: React.FC = () => {
                       <span className="font-semibold">Total:</span>
                       <span className="font-bold text-lg text-orange-500">${cartTotal.toFixed(2)}</span>
                     </div>
-                    <button className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium">
+                    <button onClick={() => placeOrder()} className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium">
                       Place Order
                     </button>
                   </div>
