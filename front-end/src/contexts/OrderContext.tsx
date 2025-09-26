@@ -42,6 +42,7 @@ interface OrderContextType {
   clearCart: () => void;
   placeOrder: () => string;
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
+  getCartItemQuantity: (itemId: string | number) => number;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -112,6 +113,12 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCart([]);
   };
 
+  const getCartItemQuantity = (itemId: string | number): number => {
+    const normalizedId = String(itemId);
+    const item = cart.find(cartItem => cartItem.id === normalizedId);
+    return item ? item.quantity : 0;
+  };
+
   const placeOrder = async (): Promise<string> => {
     try {
       const orderItems = cart.map(item => ({
@@ -164,7 +171,8 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     clearCart,
     placeOrder,
     updateOrderStatus,
-    loadOrders
+    loadOrders,
+    getCartItemQuantity
   };
 
   return <OrderContext.Provider value={value}>{children}</OrderContext.Provider>;
