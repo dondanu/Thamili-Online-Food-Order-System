@@ -10,7 +10,8 @@ export const Order: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [loading, setLoading] = useState(true);
-  const { cart, addToCart, removeFromCart, getCartItemQuantity, updateQuantity, placeOrder } = useOrder();
+  const { cart, addToCart, removeFromCart, getCartItemQuantity, updateQuantity, placeOrder, appliedCoupon, applyCoupon, removeCoupon, getCartTotals } = useOrder();
+  const [couponCode, setCouponCode] = useState<string>('');
 
   useEffect(() => {
     const loadData = async () => {
@@ -31,7 +32,7 @@ export const Order: React.FC = () => {
     : menuItems.filter(item => item.category === selectedCategory);
 
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const { subtotal, discount, total } = getCartTotals();
 
   if (loading) {
     return (
@@ -160,11 +161,56 @@ export const Order: React.FC = () => {
                     ))}
                   </div>
 
-                  <div className="border-t pt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="font-semibold">Total:</span>
-                      <span className="font-bold text-lg text-orange-500">${cartTotal.toFixed(2)}</span>
+                  <div className="border-t pt-4 space-y-3">
+                    {/* Coupon */}
+                    <div className="flex items-center space-x-2">
+                      {appliedCoupon ? (
+                        <>
+                          <span className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded">
+                            Applied: {appliedCoupon.code}
+                          </span>
+                          <button onClick={removeCoupon} className="text-sm text-red-600 hover:underline">Remove</button>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            value={couponCode}
+                            onChange={(e) => setCouponCode(e.target.value)}
+                            placeholder="Coupon code"
+                            className="flex-1 border rounded px-3 py-2 text-sm"
+                          />
+                          <button
+                            onClick={async () => {
+                              const ok = await applyCoupon(couponCode);
+                              if (!ok) alert('Invalid coupon');
+                              else setCouponCode('');
+                            }}
+                            className="text-sm bg-gray-800 text-white px-3 py-2 rounded hover:bg-black"
+                          >
+                            Apply
+                          </button>
+                        </>
+                      )}
                     </div>
+
+                    {/* Totals */}
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between text-gray-600">
+                        <span>Subtotal</span>
+                        <span>${subtotal.toFixed(2)}</span>
+                      </div>
+                      {discount > 0 && (
+                        <div className="flex justify-between text-green-600">
+                          <span>Discount</span>
+                          <span>-${discount.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold pt-2 border-t">
+                        <span>Total</span>
+                        <span className="text-orange-500">${total.toFixed(2)}</span>
+                      </div>
+                    </div>
+
                     <button onClick={() => placeOrder()} className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium">
                       Place Order
                     </button>
