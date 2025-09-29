@@ -105,26 +105,33 @@ const getUserOrders = async (req, res) => {
   try {
     const userId = req.user.id;
     const { status, limit = 10, offset = 0 } = req.query;
+    const limitInt = Number.isFinite(Number(limit)) ? parseInt(limit) : 10;
+    const offsetInt = Number.isFinite(Number(offset)) ? parseInt(offset) : 0;
 
     let query = `
-      SELECT 
-        o.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', oi.id,
-            'menuItemId', oi.menu_item_id,
-            'name', mi.name,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'total', oi.quantity * oi.price
-          )
-        ) as items
+      SELECT
+        o.id               AS order_id,
+        o.user_id          AS user_id,
+        o.total_amount     AS total_amount,
+        o.status           AS status,
+        o.delivery_address AS delivery_address,
+        o.phone            AS phone,
+        o.notes            AS notes,
+        o.created_at       AS created_at,
+        o.updated_at       AS updated_at,
+        mi.id              AS item_id,
+        mi.name            AS item_name,
+        mi.description     AS item_description,
+        mi.image_url       AS item_image_url,
+        mi.category        AS item_category,
+        oi.price           AS item_price,
+        oi.quantity        AS item_quantity
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
       WHERE o.user_id = ?
     `;
-    
+
     const params = [userId];
 
     if (status) {
@@ -132,16 +139,45 @@ const getUserOrders = async (req, res) => {
       params.push(status);
     }
 
-    query += ' GROUP BY o.id ORDER BY o.created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    // Note: MySQL/MariaDB do not support placeholders for LIMIT/OFFSET in some versions
+    // Safely inline sanitized integers
+    query += ` ORDER BY o.created_at DESC, o.id DESC LIMIT ${limitInt} OFFSET ${offsetInt}`;
 
-    const [orders] = await pool.execute(query, params);
+    const [rows] = await pool.execute(query, params);
 
-    // Parse JSON items
-    const formattedOrders = orders.map(order => ({
-      ...order,
-      items: JSON.parse(order.items)
-    }));
+    // Aggregate into orders with items array
+    const orderIdToOrder = new Map();
+    for (const row of rows) {
+      if (!orderIdToOrder.has(row.order_id)) {
+        orderIdToOrder.set(row.order_id, {
+          id: row.order_id,
+          user_id: row.user_id,
+          total_amount: row.total_amount,
+          status: row.status,
+          delivery_address: row.delivery_address,
+          phone: row.phone,
+          notes: row.notes,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          items: []
+        });
+      }
+      if (row.item_id) {
+        orderIdToOrder.get(row.order_id).items.push({
+          id: row.item_id,
+          menuItemId: row.item_id,
+          name: row.item_name,
+          quantity: row.item_quantity,
+          price: row.item_price,
+          total: row.item_quantity * row.item_price,
+          image_url: row.item_image_url,
+          category: row.item_category,
+          description: row.item_description
+        });
+      }
+    }
+
+    const formattedOrders = Array.from(orderIdToOrder.values());
 
     res.json({
       orders: formattedOrders,
@@ -162,36 +198,67 @@ const getOrderById = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const [orders] = await pool.execute(`
-      SELECT 
-        o.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', oi.id,
-            'menuItemId', oi.menu_item_id,
-            'name', mi.name,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'total', oi.quantity * oi.price
-          )
-        ) as items
+    let query = `
+      SELECT
+        o.id               AS order_id,
+        o.user_id          AS user_id,
+        o.total_amount     AS total_amount,
+        o.status           AS status,
+        o.delivery_address AS delivery_address,
+        o.phone            AS phone,
+        o.notes            AS notes,
+        o.created_at       AS created_at,
+        o.updated_at       AS updated_at,
+        mi.id              AS item_id,
+        mi.name            AS item_name,
+        mi.description     AS item_description,
+        mi.image_url       AS item_image_url,
+        mi.category        AS item_category,
+        oi.price           AS item_price,
+        oi.quantity        AS item_quantity
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
       WHERE o.id = ? AND o.user_id = ?
-      GROUP BY o.id
-    `, [id, userId]);
+    `;
 
-    if (orders.length === 0) {
+    const [rows] = await pool.execute(query, [id, userId]);
+
+    if (rows.length === 0) {
       return res.status(404).json({
         message: 'Order not found'
       });
     }
 
+    const base = rows[0];
     const order = {
-      ...orders[0],
-      items: JSON.parse(orders[0].items)
+      id: base.order_id,
+      user_id: base.user_id,
+      total_amount: base.total_amount,
+      status: base.status,
+      delivery_address: base.delivery_address,
+      phone: base.phone,
+      notes: base.notes,
+      created_at: base.created_at,
+      updated_at: base.updated_at,
+      items: []
     };
+
+    for (const row of rows) {
+      if (row.item_id) {
+        order.items.push({
+          id: row.item_id,
+          menuItemId: row.item_id,
+          name: row.item_name,
+          quantity: row.item_quantity,
+          price: row.item_price,
+          total: row.item_quantity * row.item_price,
+          image_url: row.item_image_url,
+          category: row.item_category,
+          description: row.item_description
+        });
+      }
+    }
 
     res.json({ order });
 

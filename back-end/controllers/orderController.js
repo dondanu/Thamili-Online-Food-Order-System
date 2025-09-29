@@ -127,40 +127,67 @@ const getUserOrders = async (req, res) => {
 
     let query = `
       SELECT 
-        o.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', mi.id,
-            'name', mi.name,
-            'description', mi.description,
-            'price', oi.price,
-            'image', mi.image,
-            'category', mi.category,
-            'quantity', oi.quantity
-          )
-        ) as items
+        o.id AS order_id,
+        o.user_id,
+        o.total,
+        o.status,
+        o.estimated_time,
+        o.created_at,
+        o.updated_at,
+        mi.id AS item_id,
+        mi.name AS item_name,
+        mi.description AS item_description,
+        mi.image AS item_image,
+        mi.category AS item_category,
+        oi.price AS item_price,
+        oi.quantity AS item_quantity
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
       WHERE o.user_id = ?
     `;
 
-    let params = [userId];
+    const params = [userId];
 
     if (status) {
       query += ' AND o.status = ?';
       params.push(status);
     }
 
-    query += ' GROUP BY o.id ORDER BY o.created_at DESC';
+    query += ' ORDER BY o.created_at DESC, o.id DESC';
 
-    const [orders] = await pool.execute(query, params);
+    const [rows] = await pool.execute(query, params);
 
-    // Parse JSON items
-    const formattedOrders = orders.map(order => ({
-      ...order,
-      items: JSON.parse(order.items)
-    }));
+    // Aggregate rows into orders with items array without relying on MySQL JSON functions
+    const orderIdToOrder = new Map();
+    for (const row of rows) {
+      if (!orderIdToOrder.has(row.order_id)) {
+        orderIdToOrder.set(row.order_id, {
+          id: row.order_id,
+          user_id: row.user_id,
+          total: row.total,
+          status: row.status,
+          estimated_time: row.estimated_time,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          items: []
+        });
+      }
+      // Only push item if present (LEFT JOIN may yield nulls when there are no items)
+      if (row.item_id) {
+        orderIdToOrder.get(row.order_id).items.push({
+          id: row.item_id,
+          name: row.item_name,
+          description: row.item_description,
+          price: row.item_price,
+          image: row.item_image,
+          category: row.item_category,
+          quantity: row.item_quantity
+        });
+      }
+    }
+
+    const formattedOrders = Array.from(orderIdToOrder.values());
 
     res.json({
       success: true,
@@ -245,44 +272,64 @@ const getOrderById = async (orderId, userId = null) => {
   try {
     let query = `
       SELECT 
-        o.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', mi.id,
-            'name', mi.name,
-            'description', mi.description,
-            'price', oi.price,
-            'image', mi.image,
-            'category', mi.category,
-            'quantity', oi.quantity
-          )
-        ) as items
+        o.id AS order_id,
+        o.user_id,
+        o.total,
+        o.status,
+        o.estimated_time,
+        o.created_at,
+        o.updated_at,
+        mi.id AS item_id,
+        mi.name AS item_name,
+        mi.description AS item_description,
+        mi.image AS item_image,
+        mi.category AS item_category,
+        oi.price AS item_price,
+        oi.quantity AS item_quantity
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
       WHERE o.id = ?
     `;
 
-    let params = [orderId];
-
+    const params = [orderId];
     if (userId) {
       query += ' AND o.user_id = ?';
       params.push(userId);
     }
 
-    query += ' GROUP BY o.id';
-
-    const [orders] = await pool.execute(query, params);
-
-    if (orders.length === 0) {
+    const [rows] = await pool.execute(query, params);
+    if (rows.length === 0) {
       return null;
     }
 
-    const order = orders[0];
-    return {
-      ...order,
-      items: JSON.parse(order.items)
+    const base = rows[0];
+    const order = {
+      id: base.order_id,
+      user_id: base.user_id,
+      total: base.total,
+      status: base.status,
+      estimated_time: base.estimated_time,
+      created_at: base.created_at,
+      updated_at: base.updated_at,
+      items: []
     };
+
+    for (const row of rows) {
+      if (row.item_id) {
+        order.items.push({
+          id: row.item_id,
+          name: row.item_name,
+          description: row.item_description,
+          price: row.item_price,
+          image: row.item_image,
+          category: row.item_category,
+          quantity: row.item_quantity
+        });
+      }
+    }
+
+    return order;
 
   } catch (error) {
     console.error('Get order by ID error:', error);
