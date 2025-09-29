@@ -17,16 +17,20 @@ export const fetchMenuItems = async (category?: string): Promise<MenuItem[]> => 
       headers: getAuthHeaders()
     });
     
-    const data = await response.json();
-    
-    if (data.success) {
-      return data.data.menuItems.map((item: any) => ({
-        ...item,
-        id: item.id.toString()
-      }));
-    } else {
-      throw new Error(data.message || 'Failed to fetch menu items');
+    const data = await response.json().catch(() => ({}));
+    // Support both API shapes:
+    // 1) { success: true, data: { menuItems: [...] } }
+    // 2) { menuItems: [...] }
+    const rawItems = (data && data.success === true) ? data?.data?.menuItems : data?.menuItems;
+    if (!Array.isArray(rawItems)) {
+      throw new Error(data?.message || 'Failed to fetch menu items');
     }
+
+    return rawItems.map((item: any) => ({
+      ...item,
+      id: item.id?.toString?.() ?? String(item.id),
+      image: item.image ?? item.image_url
+    }));
   } catch (error) {
     console.error('Error fetching menu items:', error);
     return [];
@@ -39,13 +43,15 @@ export const fetchCategories = async (): Promise<string[]> => {
       headers: getAuthHeaders()
     });
     
-    const data = await response.json();
-    
-    if (data.success) {
-      return data.data.categories;
-    } else {
-      throw new Error(data.message || 'Failed to fetch categories');
+    const data = await response.json().catch(() => ({}));
+    // Support both API shapes:
+    // 1) { success: true, data: { categories: [...] } }
+    // 2) { categories: [...] }
+    const rawCategories = (data && data.success === true) ? data?.data?.categories : data?.categories;
+    if (!Array.isArray(rawCategories)) {
+      throw new Error(data?.message || 'Failed to fetch categories');
     }
+    return rawCategories;
   } catch (error) {
     console.error('Error fetching categories:', error);
     return [];
